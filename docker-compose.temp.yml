@@ -1,0 +1,133 @@
+version: '3.8'
+
+services:
+  # ==========================================
+  # INFRASTRUCTURE: DATABASES
+  # ==========================================
+
+  auth-db:
+    image: postgres:15
+    container_name: auth-db
+    environment:
+      POSTGRES_DB: auth_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    networks:
+      - cinema-network
+
+  movie-db:
+    image: postgres:15
+    container_name: movie-db
+    environment:
+      POSTGRES_DB: movie_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5433:5432" # External access on 5433
+    networks:
+      - cinema-network
+
+  booking-db:
+    image: postgres:15
+    container_name: booking-db
+    environment:
+      POSTGRES_DB: booking_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5434:5432" # External access on 5434
+    networks:
+      - cinema-network
+
+  # ==========================================
+  # INFRASTRUCTURE: DISCOVERY
+  # ==========================================
+
+  discovery-server:
+    build: ./discovery
+    container_name: discovery-server
+    ports:
+      - "8761:8761"
+    environment:
+      - EUREKA_CLIENT_REGISTER_WITH_EUREKA=false
+      - EUREKA_CLIENT_FETCH_REGISTRY=false
+    networks:
+      - cinema-network
+
+  # ==========================================
+  # MICROSERVICES
+  # ==========================================
+
+  auth-service:
+    build: ./auth
+    container_name: auth-service
+    ports:
+      - "8081:8081" # Optional: Expose for debugging, but usually accessed via Gateway
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://auth-db:5432/auth_db
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=password
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka/
+    depends_on:
+      - auth-db
+      - discovery-server
+    networks:
+      - cinema-network
+
+  movie-service:
+    build: ./movie
+    container_name: movie-service
+    ports:
+      - "8082:8082"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://movie-db:5432/movie_db
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=password
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka/
+    depends_on:
+      - movie-db
+      - discovery-server
+    networks:
+      - cinema-network
+
+  booking-service:
+    build: ./booking
+    container_name: booking-service
+    ports:
+      - "8083:8083"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://booking-db:5432/booking_db
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=password
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka/
+    depends_on:
+      - booking-db
+      - discovery-server
+    networks:
+      - cinema-network
+
+  # ==========================================
+  # ENTRY POINT: API GATEWAY
+  # ==========================================
+
+  api-gateway:
+    build: ./gateway
+    container_name: api-gateway
+    ports:
+      - "8080:8080" # This is the ONLY port the frontend/user should touch
+    environment:
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka/
+      - SERVER_PORT=8080
+    depends_on:
+      - discovery-server
+      - auth-service
+      - movie-service
+      - booking-service
+    networks:
+      - cinema-network
+
+networks:
+  cinema-network:
+    driver: bridge
